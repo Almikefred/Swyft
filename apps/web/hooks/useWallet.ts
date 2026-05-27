@@ -21,6 +21,8 @@ export interface WalletState {
   address: string | null;
   error: WalletError;
   connecting: boolean;
+  /** True while the persisted session is being restored on mount */
+  loading: boolean;
   connect: () => Promise<void>;
   disconnect: () => void;
   signTransaction: ((xdr: string) => Promise<string>) | null;
@@ -30,6 +32,7 @@ export function useWallet(): WalletState {
   const [address, setAddress] = useState<string | null>(null);
   const [error, setError] = useState<WalletError>(null);
   const [connecting, setConnecting] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const validateAndSet = useCallback(async (addr: string) => {
     const networkResult = await getNetwork();
@@ -48,23 +51,25 @@ export function useWallet(): WalletState {
   // Restore session on mount
   useEffect(() => {
     const stored = localStorage.getItem(WALLET_STORAGE_KEY);
-    if (!stored) return;
+    if (!stored) { setLoading(false); return; }
 
     (async () => {
       try {
         const connected = await isConnected();
         const ok = "isConnected" in connected ? connected.isConnected : connected;
-        if (!ok) return;
+        if (!ok) { setLoading(false); return; }
 
         const allowed = await isAllowed();
         const permitted = "isAllowed" in allowed ? allowed.isAllowed : allowed;
-        if (!permitted) return;
+        if (!permitted) { setLoading(false); return; }
 
         const result = await getAddress();
         const addr = "address" in result ? result.address : (result as string);
         if (addr) await validateAndSet(addr);
       } catch {
         localStorage.removeItem(WALLET_STORAGE_KEY);
+      } finally {
+        setLoading(false);
       }
     })();
   }, [validateAndSet]);
@@ -110,5 +115,5 @@ export function useWallet(): WalletState {
     throw new Error("Signing rejected");
   }, []);
 
-  return { address, error, connecting, connect, disconnect, signTransaction };
+  return { address, error, connecting, loading, connect, disconnect, signTransaction };
 }

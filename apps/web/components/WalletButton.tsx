@@ -9,7 +9,7 @@ function truncate(addr: string) {
 }
 
 export function WalletButton() {
-  const { address, error, connecting, connect, disconnect } = useWalletContext();
+  const { address, error, connecting, loading, connect, disconnect } = useWalletContext();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -27,6 +27,12 @@ export function WalletButton() {
     navigator.clipboard.writeText(address);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  }
+
+  if (loading) {
+    return (
+      <div className="h-9 w-32 animate-pulse rounded-full bg-zinc-200 dark:bg-zinc-700" aria-label="Loading wallet" />
+    );
   }
 
   if (address) {

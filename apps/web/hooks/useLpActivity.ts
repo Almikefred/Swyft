@@ -23,6 +23,16 @@ export interface LpActivityListResponse {
   total: number;
 }
 
+interface RawPosition {
+  id: string;
+  poolId: string;
+  token0: string;
+  token1: string;
+  liquidity: string;
+  ownerWallet: string;
+  createdAt: number;
+}
+
 export function useLpActivity(
   walletAddress: string | null,
   authToken: string | null,
@@ -53,7 +63,7 @@ export function useLpActivity(
       // Transform positions into LP activity entries
       // This is a placeholder - the actual API should return LP activity directly
       // For now, we'll derive activity from position data
-      const activities: LpActivity[] = (data.items || []).map((pos: any) => ({
+      const activities: LpActivity[] = (data.items || []).map((pos: RawPosition) => ({
         id: pos.id,
         type: "mint" as LpActivityType,
         poolId: pos.poolId,
