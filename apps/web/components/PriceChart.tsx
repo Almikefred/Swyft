@@ -46,7 +46,11 @@ function drawChart(
   ctx.fillStyle = colors.bg;
   ctx.fillRect(0, 0, W, H);
 
-  if (candles.length === 0) return;
+  if (candles.length === 0) {
+    ctx.fillStyle = colors.bg;
+    ctx.fillRect(0, 0, W, H);
+    return;
+  }
 
   const chartW = W - PADDING.left - PADDING.right;
   const chartH = H - PADDING.top - PADDING.bottom;
@@ -239,7 +243,15 @@ export function PriceChart({ tokenA, tokenB, tokenASymbol, tokenBSymbol }: Props
         )}
 
         {/* Empty state */}
-        {!loading && candles.length === 0 && (
+        {!loading && (!tokenA || !tokenB) && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 z-10">
+            <p className="text-sm text-zinc-400">Select a token pair</p>
+            <p className="text-xs text-zinc-300 dark:text-zinc-600">
+              Choose two tokens to view the price chart
+            </p>
+          </div>
+        )}
+        {!loading && tokenA && tokenB && candles.length === 0 && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 z-10">
             <p className="text-sm text-zinc-400">No price history</p>
             <p className="text-xs text-zinc-300 dark:text-zinc-600">
