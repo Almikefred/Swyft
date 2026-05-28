@@ -19,6 +19,7 @@ export interface SwapSnapshot {
 export interface SwapsListResponse {
   items: SwapSnapshot[];
   total: number;
+  isLoading: boolean;
 }
 
 export function useSwaps(walletAddress: string | null, page: number = 1, limit: number = 20) {

@@ -22,29 +22,42 @@ interface SwapsListResponse {
   limit: number;
   total: number;
   totalPages: number;
+  isLoading: boolean;
 }
 
 @Injectable()
 export class SwapsService {
+  private _isLoading = false;
+
+  get isLoading(): boolean {
+    return this._isLoading;
+  }
+
   constructor(private readonly swapsRepository: SwapsRepository) {}
 
   async getSwaps(query: GetSwapsQueryDto): Promise<SwapsListResponse> {
-    const normalized: SwapsQuery = {
-      pool: query.pool?.trim() || undefined,
-      wallet: query.wallet?.trim() || undefined,
-      page: query.page ?? 1,
-      limit: query.limit ?? 20,
-    };
+    this._isLoading = true;
+    try {
+      const normalized: SwapsQuery = {
+        pool: query.pool?.trim() || undefined,
+        wallet: query.wallet?.trim() || undefined,
+        page: query.page ?? 1,
+        limit: query.limit ?? 20,
+      };
 
-    const { items, total } = await this.swapsRepository.listSwaps(normalized);
+      const { items, total } = await this.swapsRepository.listSwaps(normalized);
 
-    return {
-      items: items.map((swap) => this.toResponse(swap)),
-      page: normalized.page,
-      limit: normalized.limit,
-      total,
-      totalPages: total === 0 ? 0 : Math.ceil(total / normalized.limit),
-    };
+      return {
+        items: items.map((swap) => this.toResponse(swap)),
+        page: normalized.page,
+        limit: normalized.limit,
+        total,
+        totalPages: total === 0 ? 0 : Math.ceil(total / normalized.limit),
+        isLoading: false,
+      };
+    } finally {
+      this._isLoading = false;
+    }
   }
 
   private toResponse(swap: SwapSnapshot): SwapResponse {
