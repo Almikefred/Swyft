@@ -24,7 +24,7 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
   const filteredLpActivity = filterByDate(lpData?.items || [], startDate, endDate);
 
   const totalPages = Math.ceil(
-    (activeTab === "swaps" ? swapsData?.total : lpData?.total || 0) / 20
+    (activeTab === "swaps" ? (swapsData?.total ?? 0) : (lpData?.total ?? 0)) / 20
   );
 
   function filterByDate<T extends { timestamp: number }>(items: T[], start: string, end: string): T[] {
