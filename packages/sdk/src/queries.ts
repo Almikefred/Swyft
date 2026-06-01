@@ -46,7 +46,15 @@ async function callContract(
   }
 }
 
-/** Asserts that a raw scValToNative result is a plain object, throwing on unexpected shapes. */
+/**
+ * Validates that a raw scValToNative result is a plain object.
+ * Throws SwyftRpcError if the value has an unexpected shape.
+ *
+ * @param raw - The raw value to validate
+ * @param context - Description of where the value came from (for error messages)
+ * @returns The validated object with safely indexed string keys
+ * @throws {SwyftRpcError} If raw is null, not an object, or an array
+ */
 function assertRawObject(raw: unknown, context: string): Record<string, unknown> {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new SwyftRpcError(`Unexpected response shape from ${context}`);
@@ -54,6 +62,61 @@ function assertRawObject(raw: unknown, context: string): Record<string, unknown>
   return raw as Record<string, unknown>;
 }
 
+/**
+ * Safely extracts a string value from an object with fallback.
+ * Returns the first non-null/undefined value from the list of keys.
+ *
+ * @param obj - The object to extract from
+ * @param keys - List of key names to check in order
+ * @param fallback - Default value if all keys are null/undefined
+ * @returns The extracted string or fallback value
+ */
+function extractString(
+  obj: Record<string, unknown>,
+  keys: readonly string[],
+  fallback: string,
+): string {
+  for (const key of keys) {
+    const value = obj[key];
+    if (value != null) {
+      return String(value);
+    }
+  }
+  return fallback;
+}
+
+/**
+ * Safely extracts a number value from an object with fallback.
+ * Returns the first non-null/undefined value from the list of keys.
+ *
+ * @param obj - The object to extract from
+ * @param keys - List of key names to check in order
+ * @param fallback - Default value if all keys are null/undefined
+ * @returns The extracted number or fallback value
+ */
+function extractNumber(
+  obj: Record<string, unknown>,
+  keys: readonly string[],
+  fallback: number,
+): number {
+  for (const key of keys) {
+    const value = obj[key];
+    if (value != null) {
+      return Number(value);
+    }
+  }
+  return fallback;
+}
+
+/**
+ * Fetches the current state of a liquidity pool.
+ *
+ * @param options - Configuration object
+ * @param options.rpcUrl - Soroban RPC URL
+ * @param options.poolAddress - Contract address of the pool
+ * @returns Promise resolving to the pool's current state
+ * @throws {SwyftRpcError} If the RPC call fails or returns an unexpected shape
+ */
 export async function getPool({
   rpcUrl,
   poolAddress,
@@ -66,15 +129,25 @@ export async function getPool({
 
   return {
     poolAddress,
-    sqrtPrice: String(raw['sqrt_price'] ?? raw['sqrtPrice'] ?? '0'),
-    currentTick: Number(raw['current_tick'] ?? raw['currentTick'] ?? 0),
-    liquidity: String(raw['liquidity'] ?? '0'),
-    feeTier: Number(raw['fee_tier'] ?? raw['feeTier'] ?? 0),
-    token0: String(raw['token0'] ?? ''),
-    token1: String(raw['token1'] ?? ''),
+    sqrtPrice: extractString(raw, ['sqrt_price', 'sqrtPrice'], '0'),
+    currentTick: extractNumber(raw, ['current_tick', 'currentTick'], 0),
+    liquidity: extractString(raw, ['liquidity'], '0'),
+    feeTier: extractNumber(raw, ['fee_tier', 'feeTier'], 0),
+    token0: extractString(raw, ['token0'], ''),
+    token1: extractString(raw, ['token1'], ''),
   };
 }
 
+/**
+ * Fetches the state of a concentrated liquidity position (NFT).
+ * Returns null if the position does not exist or is empty.
+ *
+ * @param options - Configuration object
+ * @param options.rpcUrl - Soroban RPC URL
+ * @param options.positionNftId - NFT contract address that holds the position
+ * @returns Promise resolving to the position state, or null if not found
+ * @throws {SwyftRpcError} If the RPC call fails
+ */
 export async function getPosition({
   rpcUrl,
   positionNftId,
@@ -110,11 +183,11 @@ export async function getPosition({
   const position = positionData as Record<string, unknown>;
   return {
     positionNftId,
-    owner: String(position['owner'] ?? ''),
-    pool: String(position['pool'] ?? ''),
-    lowerTick: Number(position['lower_tick'] ?? position['lowerTick'] ?? 0),
-    upperTick: Number(position['upper_tick'] ?? position['upperTick'] ?? 0),
-    liquidity: String(position['liquidity'] ?? '0'),
+    owner: extractString(position, ['owner'], ''),
+    pool: extractString(position, ['pool'], ''),
+    lowerTick: extractNumber(position, ['lower_tick', 'lowerTick'], 0),
+    upperTick: extractNumber(position, ['upper_tick', 'upperTick'], 0),
+    liquidity: extractString(position, ['liquidity'], '0'),
   };
 }
 
@@ -122,6 +195,12 @@ export async function getPosition({
  * Async position query helper that yields a microtask before resolving.
  * This is useful for UI consumers that want to show a loading state while the
  * query is in-flight.
+ *
+ * @param options - Configuration object
+ * @param options.rpcUrl - Soroban RPC URL
+ * @param options.positionNftId - NFT contract address that holds the position
+ * @returns Promise resolving to the position state, or null if not found
+ * @throws {SwyftRpcError} If the RPC call fails
  */
 export async function getPositionWithLoading({
   rpcUrl,
@@ -129,11 +208,21 @@ export async function getPositionWithLoading({
 }: {
   rpcUrl: string;
   positionNftId: string;
-}): Promise<PositionState> {
+}): Promise<PositionState | null> {
   await Promise.resolve();
   return getPosition({ rpcUrl, positionNftId });
 }
 
+/**
+ * Fetches the state of a specific tick in a liquidity pool.
+ *
+ * @param options - Configuration object
+ * @param options.rpcUrl - Soroban RPC URL
+ * @param options.poolAddress - Contract address of the pool
+ * @param options.tick - Tick index to query
+ * @returns Promise resolving to the tick's current state
+ * @throws {SwyftRpcError} If the RPC call fails or returns an unexpected shape
+ */
 export async function getTick({
   rpcUrl,
   poolAddress,
@@ -149,8 +238,8 @@ export async function getTick({
 
   return {
     tick,
-    liquidityNet: String(raw['liquidity_net'] ?? raw['liquidityNet'] ?? '0'),
-    liquidityGross: String(raw['liquidity_gross'] ?? raw['liquidityGross'] ?? '0'),
-    feeGrowthOutside: String(raw['fee_growth_outside'] ?? raw['feeGrowthOutside'] ?? '0'),
+    liquidityNet: extractString(raw, ['liquidity_net', 'liquidityNet'], '0'),
+    liquidityGross: extractString(raw, ['liquidity_gross', 'liquidityGross'], '0'),
+    feeGrowthOutside: extractString(raw, ['fee_growth_outside', 'feeGrowthOutside'], '0'),
   };
 }
