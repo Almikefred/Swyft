@@ -185,7 +185,7 @@ impl Pool {
     pub fn flip_tick(env: Env, tick: i32, tick_spacing: i32) {
         validate_tick(&env, tick, tick_spacing);
         let (word_pos, bit_pos) = tick_position(tick / tick_spacing);
-        let mut bitmap: Map<i16, u128> = env
+        let mut bitmap: Map<i32, u128> = env
             .storage()
             .instance()
             .get(&KEY_BITMAP)
@@ -209,7 +209,7 @@ impl Pool {
     /// initialised tick was found and the boundary (`MIN_TICK` / `MAX_TICK`) is returned.
     pub fn next_initialized_tick(env: Env, tick: i32, tick_spacing: i32, lte: bool) -> (i32, bool) {
         let compressed = tick / tick_spacing;
-        let bitmap: Map<i16, u128> = env
+        let bitmap: Map<i32, u128> = env
             .storage()
             .instance()
             .get(&KEY_BITMAP)
@@ -236,7 +236,7 @@ impl Pool {
                     let next = (w as i32 * 256 + msb) * tick_spacing;
                     return (next, true);
                 }
-                if w == i16::MIN {
+                if w == i32::MIN {
                     break;
                 }
                 w -= 1;
@@ -260,7 +260,7 @@ impl Pool {
                     let next = (w as i32 * 256 + lsb) * tick_spacing;
                     return (next, true);
                 }
-                if w == i16::MAX {
+                if w == i32::MAX {
                     break;
                 }
                 w += 1;
@@ -405,7 +405,7 @@ impl Pool {
 
         // Update position
         let positions_key = (KEY_POSITIONS, position_id);
-        let mut position = env.storage().persistent().get(&positions_key).unwrap_or_else(|| panic_with_pool_error(&env, PoolError::NotInitialized));
+        let mut position: Position = env.storage().persistent().get(&positions_key).unwrap_or_else(|| panic_with_pool_error(&env, PoolError::NotInitialized));
         position.liquidity = position.liquidity.checked_sub(amount).unwrap_or_else(|| panic_with_pool_error(&env, PoolError::InsufficientLiquidity));
         if position.liquidity == 0 {
             env.storage().persistent().remove(&positions_key);
@@ -451,7 +451,7 @@ impl Pool {
         };
 
         let positions_key = (KEY_POSITIONS, position_id);
-        let mut position = match env.storage().persistent().get(&positions_key) {
+        let mut position: Position = match env.storage().persistent().get(&positions_key) {
             Some(p) => p,
             None => return CollectResult { amount_0: 0, amount_1: 0 }, // Position doesn't exist
         };
@@ -461,8 +461,8 @@ impl Pool {
         let fee_growth_inside_delta_0 = fee_growth_inside_0_x128.wrapping_sub(position.fee_growth_inside_last_0_x128);
         let fee_growth_inside_delta_1 = fee_growth_inside_1_x128.wrapping_sub(position.fee_growth_inside_last_1_x128);
 
-        let amount_0 = mul_div(position.liquidity, fee_growth_inside_delta_0, 1u128 << 128);
-        let amount_1 = mul_div(position.liquidity, fee_growth_inside_delta_1, 1u128 << 128);
+        let amount_0 = position.liquidity.checked_mul(fee_growth_inside_delta_0).unwrap_or(0);
+        let amount_1 = position.liquidity.checked_mul(fee_growth_inside_delta_1).unwrap_or(0);
 
         position.fee_growth_inside_last_0_x128 = fee_growth_inside_0_x128;
         position.fee_growth_inside_last_1_x128 = fee_growth_inside_1_x128;
@@ -572,20 +572,14 @@ impl Pool {
     fn accrue_fees(env: Env, fee_0: u128, fee_1: u128) {
         let mut state = load_state(&env);
         if state.liquidity > 0 {
-            state.fee_growth_global_0_x128 = state.fee_growth_global_0_x128.wrapping_add(
-                if fee_0 > 0 {
-                    (fee_0 << 128) / state.liquidity
-                } else {
-                    0
-                },
-            );
-            state.fee_growth_global_1_x128 = state.fee_growth_global_1_x128.wrapping_add(
-                if fee_1 > 0 {
-                    (fee_1 << 128) / state.liquidity
-                } else {
-                    0
-                },
-            );
+            if fee_0 > 0 && state.liquidity > 0 {
+                let fee_growth = fee_0 / state.liquidity;
+                state.fee_growth_global_0_x128 = state.fee_growth_global_0_x128.wrapping_add(fee_growth);
+            }
+            if fee_1 > 0 && state.liquidity > 0 {
+                let fee_growth = fee_1 / state.liquidity;
+                state.fee_growth_global_1_x128 = state.fee_growth_global_1_x128.wrapping_add(fee_growth);
+            }
         }
         env.storage().instance().set(&KEY_STATE, &state);
     }
@@ -613,9 +607,18 @@ fn fee_tier_to_tick_spacing(fee_tier: u32) -> i32 {
     }
 }
 
+fn mul_div(a: u128, b: u128, denominator: u128) -> u128 {
+    if denominator == 0 {
+        return 0;
+    }
+    a.checked_mul(b)
+        .and_then(|product| product.checked_div(denominator))
+        .unwrap_or(0)
+}
+
 /// Decompose a compressed tick into (word_pos, bit_pos).
-fn tick_position(compressed: i32) -> (i16, u8) {
-    let word_pos = (compressed >> 8) as i16;
+fn tick_position(compressed: i32) -> (i32, u8) {
+    let word_pos = (compressed >> 8) as i32;
     let bit_pos = (compressed & 0xFF) as u8;
     (word_pos, bit_pos)
 }

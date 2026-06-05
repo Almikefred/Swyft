@@ -313,6 +313,7 @@ fn execute_swap(
     );
     (result.amount_in, result.amount_out)
 }
+}
 
 #[cfg(test)]
 mod test;

@@ -9,6 +9,7 @@ members = [
   "contracts/position-nft",
   "contracts/fee-collector",
   "contracts/oracle-adapter",
+  "contracts/cl-pool",
 ]
 
 [workspace.dependencies]

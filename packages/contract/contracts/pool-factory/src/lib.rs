@@ -79,7 +79,7 @@ impl PoolFactory {
             .get::<DataKey, bool>(&DataKey::Initialized)
             .unwrap_or(false)
         {
-            panic_with_error!(&env, FactoryError::AlreadyInitialized);
+            panic_with_error(&env, FactoryError::AlreadyInitialized);
         }
 
         env.storage().instance().set(&DataKey::Initialized, &true);
@@ -118,17 +118,17 @@ impl PoolFactory {
 
         let mut pools = read_pools(&env);
         if pools.contains_key(key.clone()) {
-            panic_with_error!(&env, FactoryError::DuplicatePool);
+            panic_with_error(&env, FactoryError::DuplicatePool);
         }
 
         let wasm_hash = env
             .storage()
             .instance()
             .get::<DataKey, BytesN<32>>(&DataKey::PoolWasmHash)
-            .unwrap_or_else(|| panic_with_error!(&env, FactoryError::PoolWasmHashMissing));
+            .unwrap_or_else(|| panic_with_error(&env, FactoryError::PoolWasmHashMissing));
 
         set_loading(&env, true);
-        let salt = env.crypto().sha256(&key.to_xdr(&env));
+        let salt = env.crypto().sha256(&key.clone().to_xdr(&env));
         let pool = env.deployer().with_current_contract(salt).deploy(wasm_hash);
 
         pools.set(key.clone(), pool.clone());
@@ -298,7 +298,7 @@ fn ensure_initialized(env: &Env) {
         .get::<DataKey, bool>(&DataKey::Initialized)
         .unwrap_or(false)
     {
-        panic_with_error!(env, FactoryError::NotInitialized);
+        panic_with_error(env, FactoryError::NotInitialized);
     }
 }
 
@@ -309,18 +309,16 @@ fn require_owner(env: &Env) {
 
 fn validate_fee_tier(env: &Env, fee_tier: u32) {
     if fee_tier != FEE_TIER_005 && fee_tier != FEE_TIER_03 && fee_tier != FEE_TIER_1 {
-        panic_with_error!(env, FactoryError::InvalidFeeTier);
+        panic_with_error(env, FactoryError::InvalidFeeTier);
     }
 }
 
-fn normalize_pair(env: &Env, token_a: Address, token_b: Address) -> (Address, Address) {
+fn normalize_pair(_env: &Env, token_a: Address, token_b: Address) -> (Address, Address) {
     if token_a == token_b {
-        panic_with_error!(env, FactoryError::IdenticalTokens);
+        panic_with_error(_env, FactoryError::IdenticalTokens);
     }
 
-    let a = token_a.clone().into_val(env);
-    let b = token_b.clone().into_val(env);
-    if a < b {
+    if token_a.to_string() < token_b.to_string() {
         (token_a, token_b)
     } else {
         (token_b, token_a)
@@ -343,12 +341,16 @@ fn is_loading(env: &Env) -> bool {
 
 fn ensure_not_loading(env: &Env) {
     if is_loading(env) {
-        panic_with_error!(env, FactoryError::LoadingInProgress);
+        panic_with_error(env, FactoryError::LoadingInProgress);
     }
 }
 
 fn set_loading(env: &Env, value: bool) {
     env.storage().instance().set(&DataKey::Loading, &value);
+}
+
+fn panic_with_error(env: &Env, error: FactoryError) -> ! {
+    env.panic_with_error(soroban_sdk::Error::from_contract_error(error as u32))
 }
 
 #[cfg(test)]

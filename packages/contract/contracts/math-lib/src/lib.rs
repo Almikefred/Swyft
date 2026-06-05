@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, Env, Symbol, panic_with_error};
+use soroban_sdk::{contract, contractimpl, Env, Symbol};
 
 #[contract]
 pub struct MathLib;
@@ -23,6 +23,18 @@ pub enum MathError {
 impl From<MathError> for soroban_sdk::Error {
     fn from(error: MathError) -> Self {
         soroban_sdk::Error::from_contract_error(error as u32)
+    }
+}
+
+impl<'a> From<&'a MathError> for soroban_sdk::Error {
+    fn from(error: &'a MathError) -> Self {
+        soroban_sdk::Error::from_contract_error(*error as u32)
+    }
+}
+
+impl From<soroban_sdk::Error> for MathError {
+    fn from(_: soroban_sdk::Error) -> Self {
+        MathError::Overflow
     }
 }
 
@@ -137,7 +149,7 @@ impl MathLib {
             return Ok(4295128739); // Minimum sqrt price
         }
         if tick == MAX_TICK {
-            return Ok(14614467034852101032872730522039888223787239712841050); // Maximum sqrt price
+            return Ok(u128::MAX); // Maximum sqrt price (bounded by u128 limits)
         }
 
         // For the middle range, use power approximation
@@ -278,7 +290,7 @@ impl MathLib {
     /// 
     /// # Errors
     /// Returns MathError::Underflow or MathError::Overflow if bounds are exceeded
-    pub fn get_next_sqrt_price_from_amount_0(
+    pub fn next_sqrt_price_0(
         sqrt_price_x96: u128,
         liquidity: u128,
         amount_in: u128,
@@ -309,7 +321,8 @@ impl MathLib {
                 .and_then(|sum| {
                     liquidity.checked_mul(Q96)
                         .ok_or(MathError::Overflow)
-                        .and_then(|numerator| numerator.checked_div(sum))
+                        .and_then(|numerator| numerator.checked_div(sum)
+                            .ok_or(MathError::DivisionByZero))
                 })
         }
     }
@@ -327,7 +340,7 @@ impl MathLib {
     /// 
     /// # Errors
     /// Returns MathError::Underflow or MathError::Overflow if bounds are exceeded
-    pub fn get_next_sqrt_price_from_amount_1(
+    pub fn next_sqrt_price_1(
         sqrt_price_x96: u128,
         liquidity: u128,
         amount_in: u128,
