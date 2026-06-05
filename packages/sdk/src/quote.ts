@@ -1,6 +1,6 @@
 import { PoolState, TickState } from './types';
 
-const Q96 = 2n ** 96n;
+const Q96 = 79228162514264337593543950336; // 2^96
 const MAX_TICK = 887272;
 const MIN_TICK = -887272;
 

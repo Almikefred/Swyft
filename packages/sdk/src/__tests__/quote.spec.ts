@@ -1,7 +1,7 @@
 import { getSwapQuote, calculateSwapQuote, EMPTY_QUOTE, isEmptyQuote } from "../quote";
 import { PoolState } from "../types";
 
-const Q96 = 2n ** 96n;
+const Q96 = 79228162514264337593543950336; // 2^96
 
 function pool(overrides: Partial<PoolState> = {}): PoolState {
   return {
