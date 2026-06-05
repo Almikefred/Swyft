@@ -60,7 +60,7 @@ impl OracleAdapter {
             .get::<DataKey, bool>(&DataKey::Initialized)
             .unwrap_or(false)
         {
-            panic_with_error!(&env, OracleError::AlreadyInitialized);
+            panic_oracle_error(&env, OracleError::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Initialized, &true);
         env.storage().instance().set(&DataKey::Pool, &pool);
@@ -153,7 +153,7 @@ impl OracleAdapter {
             .unwrap_or(0);
 
         if count < 2 {
-            panic_with_error!(&env, OracleError::InsufficientHistory);
+            panic_oracle_error(&env, OracleError::InsufficientHistory);
         }
 
         let write_idx: u32 = env
@@ -189,7 +189,7 @@ impl OracleAdapter {
             .unwrap();
 
         if oldest.timestamp > target_ts {
-            panic_with_error!(&env, OracleError::WindowTooLarge);
+            panic_oracle_error(&env, OracleError::WindowTooLarge);
         }
 
         // Binary-search for the observation at or just before target_ts.
@@ -197,7 +197,7 @@ impl OracleAdapter {
 
         let elapsed = (latest.timestamp - start_obs.timestamp) as u128;
         if elapsed == 0 {
-            panic_with_error!(&env, OracleError::InsufficientHistory);
+            panic_oracle_error(&env, OracleError::InsufficientHistory);
         }
 
         let cum_delta = latest
@@ -230,6 +230,10 @@ impl OracleAdapter {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+fn panic_oracle_error(env: &Env, error: OracleError) -> ! {
+    env.panic_with_error(soroban_sdk::Error::from_contract_error(error as u32))
+}
+
 fn ensure_initialized(env: &Env) {
     if !env
         .storage()
@@ -237,7 +241,7 @@ fn ensure_initialized(env: &Env) {
         .get::<DataKey, bool>(&DataKey::Initialized)
         .unwrap_or(false)
     {
-        panic_with_error!(env, OracleError::NotInitialized);
+        panic_oracle_error(env, OracleError::NotInitialized);
     }
 }
 

@@ -1,6 +1,6 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, Env, Symbol,
+    contract, contracterror, contractimpl, contracttype, token, Address, Env, IntoVal, Symbol,
 };
 
 pub const Q96: u128 = 1u128 << 96;
@@ -182,13 +182,17 @@ impl ClPool {
             .instance()
             .get(&DataKey::NftContract)
             .unwrap();
-        let nft_client = position_nft::PositionNftClient::new(&env, &nft_contract);
-        let nft_id = nft_client.mint(
-            &owner,
-            &env.current_contract_address(),
-            &tick_lower,
-            &tick_upper,
-            &liquidity,
+        let nft_id: u64 = env.invoke_contract(
+            &nft_contract,
+            &Symbol::new(&env, "mint"),
+            soroban_sdk::vec![
+                &env,
+                owner.into_val(&env),
+                env.current_contract_address().into_val(&env),
+                tick_lower.into_val(&env),
+                tick_upper.into_val(&env),
+                liquidity.into_val(&env),
+            ],
         );
 
         let pos_id: u64 = env
@@ -490,8 +494,11 @@ impl ClPool {
 
         if position.liquidity == 0 {
             // Burn NFT and remove position
-            let nft_client = position_nft::PositionNftClient::new(&env, &nft_contract);
-            nft_client.burn(&position.nft_id);
+            env.invoke_contract::<()>(
+                &nft_contract,
+                &Symbol::new(&env, "burn"),
+                soroban_sdk::vec![&env, position.nft_id.into_val(&env)],
+            );
             env.storage()
                 .persistent()
                 .remove(&DataKey::Position(position_id));
@@ -500,13 +507,17 @@ impl ClPool {
                 .persistent()
                 .set(&DataKey::Position(position_id), &position);
             // Update NFT metadata
-            let nft_client = position_nft::PositionNftClient::new(&env, &nft_contract);
-            nft_client.mint(
-                &owner,
-                &env.current_contract_address(),
-                &position.tick_lower,
-                &position.tick_upper,
-                &position.liquidity,
+            env.invoke_contract::<u64>(
+                &nft_contract,
+                &Symbol::new(&env, "mint"),
+                soroban_sdk::vec![
+                    &env,
+                    owner.into_val(&env),
+                    env.current_contract_address().into_val(&env),
+                    position.tick_lower.into_val(&env),
+                    position.tick_upper.into_val(&env),
+                    position.liquidity.into_val(&env),
+                ],
             );
         }
 
@@ -563,14 +574,15 @@ pub fn sqrt_price_to_tick(sqrt_price_x96: u128) -> i32 {
     // log_1.0001(price) = log_1.0001((sqrt_price/2^96)^2)
     // ≈ 2 * (sqrt_price - 2^96) / (2^96 * ln(1.0001))  for small deviations
     // Use integer approximation: tick ≈ (sqrt_price_x96 / Q96 - 1) * 20000
+    let q = Q96 as i64;
+
     if sqrt_price_x96 >= Q96 {
         let ratio = (sqrt_price_x96 - Q96) as i64;
-        let q = Q96 as i64;
-        ((ratio * 20000) / q).try_into().unwrap_or(i32::MAX)
+        ((ratio * 20000).checked_div(q).unwrap_or(0)).try_into().unwrap_or(i32::MAX)
     } else {
         let ratio = (Q96 - sqrt_price_x96) as i64;
-        let q = Q96 as i64;
-        (-((ratio * 20000) / q)).try_into().unwrap_or(i32::MIN)
+        let val = (ratio * 20000).checked_div(q).unwrap_or(0);
+        val.saturating_neg().try_into().unwrap_or(i32::MIN)
     }
 }
 

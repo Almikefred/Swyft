@@ -1,5 +1,16 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, contracterror, symbol_short, Address, Env, Symbol, Vec};
+
+// ── Errors ────────────────────────────────────────────────────────────────────
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum PositionNftError {
+    NotMinter = 1,
+    Overflow = 2,
+    NotFound = 3,
+}
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
 
@@ -87,7 +98,7 @@ impl PositionNft {
 
         // Check for overflow
         if id == u64::MAX {
-            return Err(PositionNftError::Overflow);
+            env.panic_with_error(soroban_sdk::Error::from_contract_error(PositionNftError::Overflow as u32));
         }
 
         let created_at = env.ledger().timestamp();
@@ -236,7 +247,6 @@ fn require_minter(env: &Env) {
         .get(&DataKey::Minter)
         .expect("not initialized");
     minter.require_auth();
-    Ok(())
 }
 
 /// Emit a Transfer event compatible with the SDK / frontend.
