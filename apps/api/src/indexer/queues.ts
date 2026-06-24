@@ -29,11 +29,17 @@ export interface SwapProcessedJobData {
   sqrtPriceX96: string;
   liquidity: string;
   tick: number;
+  /** Transaction hash when Horizon exposes one; falls back to eventId. */
+  transactionHash?: string;
+  /** ISO-8601 timestamp emitted by Horizon. */
+  timestamp?: string;
 }
 
 export interface PositionMintedJobData {
   eventId: string;
   poolId: string;
+  /** Pool-local NFT/position identifier. */
+  tokenId: string;
   owner: string;
   tickLower: number;
   tickUpper: number;
@@ -45,6 +51,8 @@ export interface PositionMintedJobData {
 export interface PositionBurnedJobData {
   eventId: string;
   poolId: string;
+  /** Pool-local NFT/position identifier. */
+  tokenId: string;
   owner: string;
   tickLower: number;
   tickUpper: number;

@@ -42,11 +42,11 @@ The `-v` flag removes the named `postgres_data` volume, giving you a clean datab
 
 ## Service endpoints
 
-| Service    | Default URL                                      |
-|------------|--------------------------------------------------|
-| NestJS API | http://localhost:3001                            |
+| Service    | Default URL                                           |
+| ---------- | ----------------------------------------------------- |
+| NestJS API | http://localhost:3001                                 |
 | PostgreSQL | `postgresql://postgres:postgres@localhost:5432/swyft` |
-| Redis      | `redis://localhost:6379`                         |
+| Redis      | `redis://localhost:6379`                              |
 
 ## Running tests
 
@@ -61,3 +61,16 @@ pnpm test:cov      # coverage report
 ```bash
 docker compose down
 ```
+
+## Horizon indexer
+
+Set `POOL_CONTRACT_ID` and, optionally, `HORIZON_URL` to enable the poller.
+It reads Horizon effects every five seconds, converts recognized
+`pool_created`, `swap_processed`, `position_minted`, and `position_burned`
+events to BullMQ jobs, and stores its paging cursor in `indexer_cursor`.
+
+Each job uses the Horizon event ID as its stable idempotency key. The workers
+retain the raw event tables for auditability and project the data into the
+canonical `Pool`, `Token`, `Swap`, and `Position` tables. Position events must
+include their pool-local `tokenId`; `liquidity` is the resulting position
+liquidity, so a value of `0` closes the position.

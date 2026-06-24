@@ -159,79 +159,198 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
     const d = job.data;
     if (!this.guardEmptyData(job.id, d as unknown as Record<string, unknown>))
       return;
-    await this.prisma.poolCreated.upsert({
-      where: { eventId: d.eventId },
-      update: {},
-      create: {
-        eventId: d.eventId,
-        poolId: d.poolId,
-        tokenA: d.tokenA,
-        tokenB: d.tokenB,
-        fee: d.fee,
-        sqrtPriceX96: d.sqrtPriceX96,
-      },
-    });
+    const feeTier = Number(d.fee);
+    if (!Number.isSafeInteger(feeTier) || feeTier < 0) {
+      this.logger.warn(
+        `Skipping job ${job.id ?? 'unknown'} — invalid pool fee: ${d.fee}`,
+      );
+      return;
+    }
+
+    // The event log remains the audit trail while the transaction maintains
+    // the query-facing Pool and Token projections in lockstep.
+    await this.prisma.$transaction([
+      this.prisma.token.upsert({
+        where: { address: d.tokenA },
+        update: {},
+        create: this.unknownToken(d.tokenA),
+      }),
+      this.prisma.token.upsert({
+        where: { address: d.tokenB },
+        update: {},
+        create: this.unknownToken(d.tokenB),
+      }),
+      this.prisma.pool.upsert({
+        where: { id: d.poolId },
+        update: {
+          token0Address: d.tokenA,
+          token1Address: d.tokenB,
+          feeTier,
+          currentSqrtPrice: d.sqrtPriceX96,
+        },
+        create: {
+          id: d.poolId,
+          token0Address: d.tokenA,
+          token1Address: d.tokenB,
+          feeTier,
+          currentSqrtPrice: d.sqrtPriceX96,
+          currentTick: 0,
+          liquidity: '0',
+          tvl: '0',
+          volume24h: '0',
+          feeApr: '0',
+        },
+      }),
+      this.prisma.poolCreated.upsert({
+        where: { eventId: d.eventId },
+        update: {},
+        create: {
+          eventId: d.eventId,
+          poolId: d.poolId,
+          tokenA: d.tokenA,
+          tokenB: d.tokenB,
+          fee: d.fee,
+          sqrtPriceX96: d.sqrtPriceX96,
+        },
+      }),
+    ]);
   }
 
   private async handleSwapProcessed(job: Job<SwapProcessedJobData>) {
     const d = job.data;
     if (!this.guardEmptyData(job.id, d as unknown as Record<string, unknown>))
       return;
-    await this.prisma.swapProcessed.upsert({
-      where: { eventId: d.eventId },
-      update: {},
-      create: {
-        eventId: d.eventId,
-        poolId: d.poolId,
-        sender: d.sender,
-        recipient: d.recipient,
-        amount0: d.amount0,
-        amount1: d.amount1,
-        sqrtPriceX96: d.sqrtPriceX96,
-        liquidity: d.liquidity,
-        tick: d.tick,
-      },
-    });
+    await this.prisma.$transaction([
+      this.prisma.swap.upsert({
+        where: { eventId: d.eventId },
+        update: {},
+        create: {
+          eventId: d.eventId,
+          poolId: d.poolId,
+          senderAddress: d.sender,
+          recipientAddress: d.recipient,
+          amount0: d.amount0,
+          amount1: d.amount1,
+          sqrtPriceAfter: d.sqrtPriceX96,
+          tickAfter: d.tick,
+          transactionHash: d.transactionHash ?? d.eventId,
+          ...(d.timestamp ? { timestamp: new Date(d.timestamp) } : {}),
+        },
+      }),
+      this.prisma.pool.update({
+        where: { id: d.poolId },
+        data: {
+          currentSqrtPrice: d.sqrtPriceX96,
+          currentTick: d.tick,
+          liquidity: d.liquidity,
+        },
+      }),
+      this.prisma.swapProcessed.upsert({
+        where: { eventId: d.eventId },
+        update: {},
+        create: {
+          eventId: d.eventId,
+          poolId: d.poolId,
+          sender: d.sender,
+          recipient: d.recipient,
+          amount0: d.amount0,
+          amount1: d.amount1,
+          sqrtPriceX96: d.sqrtPriceX96,
+          liquidity: d.liquidity,
+          tick: d.tick,
+        },
+      }),
+    ]);
   }
 
   private async handlePositionMinted(job: Job<PositionMintedJobData>) {
     const d = job.data;
     if (!this.guardEmptyData(job.id, d as unknown as Record<string, unknown>))
       return;
-    await this.prisma.positionMinted.upsert({
-      where: { eventId: d.eventId },
-      update: {},
-      create: {
-        eventId: d.eventId,
-        poolId: d.poolId,
-        owner: d.owner,
-        tickLower: d.tickLower,
-        tickUpper: d.tickUpper,
-        liquidity: d.liquidity,
-        amount0: d.amount0,
-        amount1: d.amount1,
-      },
-    });
+    await this.prisma.$transaction([
+      this.prisma.position.upsert({
+        where: { poolId_tokenId: { poolId: d.poolId, tokenId: d.tokenId } },
+        update: {
+          ownerAddress: d.owner,
+          lowerTick: d.tickLower,
+          upperTick: d.tickUpper,
+          liquidity: d.liquidity,
+          closedAt: null,
+        },
+        create: {
+          poolId: d.poolId,
+          tokenId: d.tokenId,
+          ownerAddress: d.owner,
+          lowerTick: d.tickLower,
+          upperTick: d.tickUpper,
+          liquidity: d.liquidity,
+        },
+      }),
+      this.prisma.positionMinted.upsert({
+        where: { eventId: d.eventId },
+        update: {},
+        create: {
+          eventId: d.eventId,
+          poolId: d.poolId,
+          owner: d.owner,
+          tickLower: d.tickLower,
+          tickUpper: d.tickUpper,
+          liquidity: d.liquidity,
+          amount0: d.amount0,
+          amount1: d.amount1,
+        },
+      }),
+    ]);
   }
 
   private async handlePositionBurned(job: Job<PositionBurnedJobData>) {
     const d = job.data;
     if (!this.guardEmptyData(job.id, d as unknown as Record<string, unknown>))
       return;
-    await this.prisma.positionBurned.upsert({
-      where: { eventId: d.eventId },
-      update: {},
-      create: {
-        eventId: d.eventId,
-        poolId: d.poolId,
-        owner: d.owner,
-        tickLower: d.tickLower,
-        tickUpper: d.tickUpper,
-        liquidity: d.liquidity,
-        amount0: d.amount0,
-        amount1: d.amount1,
-      },
-    });
+    await this.prisma.$transaction([
+      this.prisma.position.upsert({
+        where: { poolId_tokenId: { poolId: d.poolId, tokenId: d.tokenId } },
+        update: {
+          ownerAddress: d.owner,
+          lowerTick: d.tickLower,
+          upperTick: d.tickUpper,
+          liquidity: d.liquidity,
+          closedAt: d.liquidity === '0' ? new Date() : null,
+        },
+        create: {
+          poolId: d.poolId,
+          tokenId: d.tokenId,
+          ownerAddress: d.owner,
+          lowerTick: d.tickLower,
+          upperTick: d.tickUpper,
+          liquidity: d.liquidity,
+          ...(d.liquidity === '0' ? { closedAt: new Date() } : {}),
+        },
+      }),
+      this.prisma.positionBurned.upsert({
+        where: { eventId: d.eventId },
+        update: {},
+        create: {
+          eventId: d.eventId,
+          poolId: d.poolId,
+          owner: d.owner,
+          tickLower: d.tickLower,
+          tickUpper: d.tickUpper,
+          liquidity: d.liquidity,
+          amount0: d.amount0,
+          amount1: d.amount1,
+        },
+      }),
+    ]);
+  }
+
+  private unknownToken(address: string) {
+    return {
+      address,
+      symbol: 'UNKNOWN',
+      name: address,
+      decimals: 7,
+    };
   }
 
   private async handleFeesCollected(job: Job<FeesCollectedJobData>) {
