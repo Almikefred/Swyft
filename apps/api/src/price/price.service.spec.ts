@@ -6,6 +6,7 @@ import {
   spotPriceCacheKey,
 } from './price.service';
 import { CacheService } from '../cache/cache.service';
+import { PrismaService } from '../prisma/prisma.service';
 import Redis from 'ioredis';
 import { WebSocket } from 'ws';
 
@@ -38,6 +39,7 @@ let mockSub: ReturnType<typeof buildMockSubscriber>;
 describe('PriceService', () => {
   let service: PriceService;
   let mockCache: jest.Mocked<Pick<CacheService, 'get' | 'set' | 'invalidate'>>;
+  let mockPrisma: jest.Mocked<PrismaService>;
 
   beforeEach(() => {
     mockSub = buildMockSubscriber();
@@ -47,7 +49,11 @@ describe('PriceService', () => {
       invalidate: jest.fn().mockResolvedValue(undefined),
       createSubscriber: jest.fn().mockReturnValue(mockSub),
     } as unknown as CacheService;
-    service = new PriceService(mockCache);
+    mockPrisma = {
+      pool: { findFirst: jest.fn() },
+      priceCandle: { findMany: jest.fn() },
+    } as unknown as jest.Mocked<PrismaService>;
+    service = new PriceService(mockCache, mockPrisma);
     service.onModuleInit();
   });
 
@@ -216,6 +222,55 @@ describe('PriceService', () => {
       for (const c of clients) {
         expect(c.send as jest.Mock).toHaveBeenCalledTimes(1);
       }
+    });
+  });
+
+  describe('getCandles', () => {
+    it('returns empty array when no pool is found', async () => {
+      mockPrisma.pool.findFirst.mockResolvedValueOnce(null);
+      const result = await service.getCandles('USDC', 'XLM', '1h', 100, 200, 10);
+      expect(result).toEqual([]);
+    });
+
+    it('queries price_candle table for found pool', async () => {
+      const mockPool = { id: 'pool-1' };
+      const mockCandles = [
+        {
+          id: 'candle-1',
+          poolId: 'pool-1',
+          interval: '1h',
+          open: 100,
+          high: 105,
+          low: 95,
+          close: 102,
+          volumeUsd: 10000,
+          periodStart: new Date(100000),
+          pool: null,
+        },
+      ];
+      mockPrisma.pool.findFirst.mockResolvedValueOnce(mockPool as never);
+      mockPrisma.priceCandle.findMany.mockResolvedValueOnce(mockCandles as never);
+
+      const result = await service.getCandles('USDC', 'XLM', '1h', 100, 200, 10);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].open).toBe('100');
+      expect(result[0].high).toBe('105');
+      expect(result[0].low).toBe('95');
+      expect(result[0].close).toBe('102');
+      expect(result[0].volume).toBe('10000');
+      expect(mockPrisma.priceCandle.findMany).toHaveBeenCalledWith({
+        where: {
+          poolId: 'pool-1',
+          interval: '1h',
+          periodStart: {
+            gte: new Date(100000),
+            lte: new Date(200000),
+          },
+        },
+        orderBy: { periodStart: 'asc' },
+        take: 10,
+      });
     });
   });
 });

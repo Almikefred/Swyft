@@ -17,6 +17,7 @@ import { ApiKeysModule } from './api-keys/api-keys.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { CandlesModule } from './candles/candles.module';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
+import { StatsModule } from './stats/stats.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { RateLimitModule } from './rate-limit/rate-limit.module';
     ApiKeysModule,
     WebhooksModule,
     CandlesModule,
+    StatsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

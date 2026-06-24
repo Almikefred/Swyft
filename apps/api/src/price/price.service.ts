@@ -8,6 +8,7 @@ import {
 import Redis from 'ioredis';
 import { WebSocket } from 'ws';
 import { CacheService, TTL } from '../cache/cache.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 export interface PriceEvent {
   poolId: string;
@@ -60,7 +61,10 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
   /** client → poolIds it subscribed to */
   private clientPools = new Map<WebSocket, Set<string>>();
 
-  constructor(private readonly cache: CacheService) {}
+  constructor(
+    private readonly cache: CacheService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   onModuleInit() {
     this.subscriber = this.cache.createSubscriber();
@@ -183,35 +187,52 @@ export class PriceService implements OnModuleInit, OnModuleDestroy {
     to: number,
     limit: number,
   ): Promise<PriceCandle[]> {
-    // Mock implementation - in production this would query the PriceCandle table
-    const candles: PriceCandle[] = [];
-    const intervalSeconds = this.getIntervalSeconds(interval);
+    const tokenALower = tokenA.toLowerCase();
+    const tokenBLower = tokenB.toLowerCase();
 
-    for (let i = 0; i < limit; i++) {
-      const timestamp = from + i * intervalSeconds;
-      if (timestamp > to) break;
+    const pool = await this.prisma.pool.findFirst({
+      where: {
+        OR: [
+          {
+            token0Address: { equals: tokenALower, mode: 'insensitive' },
+            token1Address: { equals: tokenBLower, mode: 'insensitive' },
+          },
+          {
+            token0Address: { equals: tokenBLower, mode: 'insensitive' },
+            token1Address: { equals: tokenALower, mode: 'insensitive' },
+          },
+        ],
+      },
+    });
 
-      // Generate realistic-looking candle data
-      const basePrice = 2000 + Math.random() * 100;
-      const volatility = 0.02; // 2% volatility
-
-      candles.push({
-        timestamp,
-        open: (
-          basePrice +
-          (Math.random() - 0.5) * basePrice * volatility
-        ).toFixed(2),
-        high: (basePrice + Math.random() * basePrice * volatility).toFixed(2),
-        low: (basePrice - Math.random() * basePrice * volatility).toFixed(2),
-        close: (
-          basePrice +
-          (Math.random() - 0.5) * basePrice * volatility
-        ).toFixed(2),
-        volume: (Math.random() * 1000000).toFixed(2),
-      });
+    if (!pool) {
+      return [];
     }
 
-    return candles;
+    const fromDate = new Date(from * 1000);
+    const toDate = new Date(to * 1000);
+
+    const priceCandles = await this.prisma.priceCandle.findMany({
+      where: {
+        poolId: pool.id,
+        interval,
+        periodStart: {
+          gte: fromDate,
+          lte: toDate,
+        },
+      },
+      orderBy: { periodStart: 'asc' },
+      take: limit,
+    });
+
+    return priceCandles.map((candle) => ({
+      timestamp: Math.floor(candle.periodStart.getTime() / 1000),
+      open: candle.open.toString(),
+      high: candle.high.toString(),
+      low: candle.low.toString(),
+      close: candle.close.toString(),
+      volume: candle.volumeUsd.toString(),
+    }));
   }
 
   private getIntervalSeconds(interval: string): number {
