@@ -191,6 +191,33 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
         sqrtPriceX96: d.sqrtPriceX96,
       },
     });
+    // Project into relational tables so /pools and token views are populated.
+    await this.prisma.token.upsert({
+      where: { address: d.tokenA },
+      update: {},
+      create: { address: d.tokenA, symbol: d.tokenA, name: d.tokenA, decimals: 7 },
+    });
+    await this.prisma.token.upsert({
+      where: { address: d.tokenB },
+      update: {},
+      create: { address: d.tokenB, symbol: d.tokenB, name: d.tokenB, decimals: 7 },
+    });
+    await this.prisma.pool.upsert({
+      where: { id: d.poolId },
+      update: {},
+      create: {
+        id: d.poolId,
+        token0Address: d.tokenA,
+        token1Address: d.tokenB,
+        feeTier: parseInt(d.fee, 10) || 0,
+        currentSqrtPrice: d.sqrtPriceX96,
+        currentTick: 0,
+        liquidity: '0',
+        tvl: '0',
+        volume24h: '0',
+        feeApr: '0',
+      },
+    });
     await this.advanceLedger(job.id, d.ledger);
   }
 
@@ -211,6 +238,31 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
         sqrtPriceX96: d.sqrtPriceX96,
         liquidity: d.liquidity,
         tick: d.tick,
+      },
+    });
+    // Project into relational Swap table and refresh pool state.
+    await this.prisma.swap.upsert({
+      where: { eventId: d.eventId },
+      update: {},
+      create: {
+        eventId: d.eventId,
+        poolId: d.poolId,
+        senderAddress: d.sender,
+        recipientAddress: d.recipient,
+        amount0: d.amount0,
+        amount1: d.amount1,
+        sqrtPriceAfter: d.sqrtPriceX96,
+        tickAfter: d.tick,
+        transactionHash: d.transactionHash ?? d.eventId,
+        ...(d.timestamp ? { timestamp: new Date(d.timestamp) } : {}),
+      },
+    });
+    await this.prisma.pool.update({
+      where: { id: d.poolId },
+      data: {
+        currentSqrtPrice: d.sqrtPriceX96,
+        currentTick: d.tick,
+        liquidity: d.liquidity,
       },
     });
     await this.advanceLedger(job.id, d.ledger);
@@ -234,6 +286,21 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
         amount1: d.amount1,
       },
     });
+    // Project into relational Position table when the event includes a tokenId.
+    if (d.tokenId) {
+      await this.prisma.position.upsert({
+        where: { poolId_tokenId: { poolId: d.poolId, tokenId: d.tokenId } },
+        update: { liquidity: d.liquidity },
+        create: {
+          poolId: d.poolId,
+          tokenId: d.tokenId,
+          ownerAddress: d.owner,
+          lowerTick: d.tickLower,
+          upperTick: d.tickUpper,
+          liquidity: d.liquidity,
+        },
+      });
+    }
     await this.advanceLedger(job.id, d.ledger);
   }
 
@@ -255,6 +322,26 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
         amount1: d.amount1,
       },
     });
+    // Project into relational Position table when the event includes a tokenId.
+    if (d.tokenId) {
+      const isClosed = d.liquidity === '0';
+      await this.prisma.position.upsert({
+        where: { poolId_tokenId: { poolId: d.poolId, tokenId: d.tokenId } },
+        update: {
+          liquidity: d.liquidity,
+          ...(isClosed ? { closedAt: new Date() } : {}),
+        },
+        create: {
+          poolId: d.poolId,
+          tokenId: d.tokenId,
+          ownerAddress: d.owner,
+          lowerTick: d.tickLower,
+          upperTick: d.tickUpper,
+          liquidity: d.liquidity,
+          ...(isClosed ? { closedAt: new Date() } : {}),
+        },
+      });
+    }
     await this.advanceLedger(job.id, d.ledger);
   }
 
