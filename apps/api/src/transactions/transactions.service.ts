@@ -1,54 +1,60 @@
+import { Injectable } from '@nestjs/common';
 import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  UnprocessableEntityException,
-} from '@nestjs/common';
-import { SorobanRpc, TransactionBuilder } from '@stellar/stellar-sdk';
+  InvalidInputException,
+  BusinessRuleViolationException,
+} from '../request-validation/http.exceptions';
+import { TransactionResult } from './transactions.types';
+
+const HORIZON_URL =
+  process.env.HORIZON_URL ?? 'https://horizon-testnet.stellar.org';
 
 @Injectable()
 export class TransactionsService {
-  private readonly logger = new Logger(TransactionsService.name);
+  async submit(xdr: string): Promise<TransactionResult> {
+    const body = new URLSearchParams({ tx: xdr });
 
-  async submit(xdr: string): Promise<{ hash: string }> {
-    const rpcUrl =
-      process.env.STELLAR_RPC_URL ?? 'https://soroban-testnet.stellar.org';
-    const networkPassphrase =
-      process.env.STELLAR_NETWORK_PASSPHRASE ??
-      'Test SDF Network ; September 2015';
-
-    let tx: ReturnType<typeof TransactionBuilder.fromXDR>;
+    let res: Response;
     try {
-      tx = TransactionBuilder.fromXDR(xdr, networkPassphrase);
-    } catch {
-      throw new BadRequestException('Invalid transaction XDR');
-    }
-
-    const server = new SorobanRpc.Server(rpcUrl);
-    const response = await server.sendTransaction(tx);
-
-    if (response.status === 'ERROR') {
-      if (this.isSlippageError(response)) {
-        throw new UnprocessableEntityException({ code: 'SLIPPAGE_EXCEEDED' });
-      }
-      this.logger.warn(`Transaction failed hash=${response.hash}`);
-      throw new UnprocessableEntityException({ code: 'TRANSACTION_FAILED' });
-    }
-
-    return { hash: response.hash };
-  }
-
-  private isSlippageError(
-    response: SorobanRpc.Api.SendTransactionResponse,
-  ): boolean {
-    try {
-      const resultXdr = response.errorResult?.toXDR('base64') ?? '';
-      const payload = resultXdr + JSON.stringify(response);
-      return /slippage|insufficient.?output|min.?received|AmountOutMin/i.test(
-        payload,
+      res = await fetch(`${HORIZON_URL}/transactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      });
+    } catch (err) {
+      throw new BusinessRuleViolationException(
+        `Horizon unreachable: ${(err as Error).message}`,
       );
-    } catch {
-      return false;
     }
+
+    if (!res.ok) {
+      const payload = (await res.json().catch(() => ({}))) as {
+        extras?: { result_codes?: { transaction?: string } };
+      };
+      const code = payload?.extras?.result_codes?.transaction ?? '';
+
+      if (code === 'tx_bad_auth' || code === 'tx_malformed') {
+        throw new InvalidInputException(`Transaction rejected: ${code}`);
+      }
+      if (code === 'tx_too_late' || code === 'tx_too_early') {
+        throw new BusinessRuleViolationException(
+          `Transaction expired or not yet valid: ${code}`,
+        );
+      }
+      if (code.startsWith('op_')) {
+        throw new BusinessRuleViolationException(
+          `Operation failed (likely slippage): ${code}`,
+        );
+      }
+      throw new BusinessRuleViolationException(
+        `Transaction failed: ${code || res.statusText}`,
+      );
+    }
+
+    const data = (await res.json()) as {
+      hash: string;
+      ledger: number;
+      successful: boolean;
+    };
+    return { hash: data.hash, ledger: data.ledger, successful: data.successful };
   }
 }

@@ -7,6 +7,7 @@ import {
 import { Worker, Job, QueueEvents } from 'bullmq';
 import { PrismaClient } from '@prisma/client';
 import { CacheService } from '../cache/cache.service';
+import { WebhooksService } from '../webhooks/webhooks.service';
 import { LAST_INDEXED_LEDGER_KEY } from '../metrics/indexer-monitor.service';
 import {
   QUEUE_NAMES,
@@ -28,7 +29,10 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
   private _isLoading = false;
   private _isReady = false;
 
-  constructor(private readonly cache: CacheService) {}
+  constructor(
+    private readonly cache: CacheService,
+    private readonly webhooks: WebhooksService,
+  ) {}
 
   get isLoading(): boolean {
     return this._isLoading;
@@ -191,33 +195,22 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
         sqrtPriceX96: d.sqrtPriceX96,
       },
     });
-    // Project into relational tables so /pools and token views are populated.
-    await this.prisma.token.upsert({
-      where: { address: d.tokenA },
-      update: {},
-      create: { address: d.tokenA, symbol: d.tokenA, name: d.tokenA, decimals: 7 },
-    });
-    await this.prisma.token.upsert({
-      where: { address: d.tokenB },
-      update: {},
-      create: { address: d.tokenB, symbol: d.tokenB, name: d.tokenB, decimals: 7 },
-    });
-    await this.prisma.pool.upsert({
-      where: { id: d.poolId },
-      update: {},
-      create: {
-        id: d.poolId,
-        token0Address: d.tokenA,
-        token1Address: d.tokenB,
-        feeTier: parseInt(d.fee, 10) || 0,
-        currentSqrtPrice: d.sqrtPriceX96,
-        currentTick: 0,
-        liquidity: '0',
-        tvl: '0',
-        volume24h: '0',
-        feeApr: '0',
-      },
-    });
+
+    this.webhooks
+      .dispatch('pool.created', {
+        poolId: d.poolId,
+        tokenA: d.tokenA,
+        tokenB: d.tokenB,
+        fee: d.fee,
+        sqrtPriceX96: d.sqrtPriceX96,
+        eventId: d.eventId,
+      })
+      .catch((err) => {
+        this.logger.error(
+          `Failed to dispatch pool.created webhook: ${err.message}`,
+        );
+      });
+
     await this.advanceLedger(job.id, d.ledger);
   }
 
@@ -240,31 +233,25 @@ export class IndexerWorker implements OnModuleInit, OnModuleDestroy {
         tick: d.tick,
       },
     });
-    // Project into relational Swap table and refresh pool state.
-    await this.prisma.swap.upsert({
-      where: { eventId: d.eventId },
-      update: {},
-      create: {
-        eventId: d.eventId,
+
+    this.webhooks
+      .dispatch('swap.large', {
         poolId: d.poolId,
-        senderAddress: d.sender,
-        recipientAddress: d.recipient,
+        sender: d.sender,
+        recipient: d.recipient,
         amount0: d.amount0,
         amount1: d.amount1,
-        sqrtPriceAfter: d.sqrtPriceX96,
-        tickAfter: d.tick,
-        transactionHash: d.transactionHash ?? d.eventId,
-        ...(d.timestamp ? { timestamp: new Date(d.timestamp) } : {}),
-      },
-    });
-    await this.prisma.pool.update({
-      where: { id: d.poolId },
-      data: {
-        currentSqrtPrice: d.sqrtPriceX96,
-        currentTick: d.tick,
+        sqrtPriceX96: d.sqrtPriceX96,
         liquidity: d.liquidity,
-      },
-    });
+        tick: d.tick,
+        eventId: d.eventId,
+      })
+      .catch((err) => {
+        this.logger.error(
+          `Failed to dispatch swap.large webhook: ${err.message}`,
+        );
+      });
+
     await this.advanceLedger(job.id, d.ledger);
   }
 

@@ -1,26 +1,17 @@
 import { Body, Controller, Post } from '@nestjs/common';
-import { ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { SWAGGER_TAGS } from '../swagger.constants';
 import { TransactionsService } from './transactions.service';
+import { SubmitTransactionDto, TransactionResult } from './transactions.types';
 
-export class SubmitTransactionDto {
-  xdr: string;
-}
-
-@ApiTags('Transactions')
+@ApiTags(SWAGGER_TAGS.TRANSACTIONS)
 @Controller('transactions')
 export class TransactionsController {
-  constructor(private readonly transactionsService: TransactionsService) {}
+  constructor(private readonly service: TransactionsService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Submit a signed Stellar transaction XDR' })
-  @ApiBody({ schema: { properties: { xdr: { type: 'string' } } } })
-  @ApiResponse({ status: 201, schema: { properties: { hash: { type: 'string' } } } })
-  @ApiResponse({ status: 400, description: 'Invalid XDR' })
-  @ApiResponse({
-    status: 422,
-    description: 'Transaction failed (SLIPPAGE_EXCEEDED or TRANSACTION_FAILED)',
-  })
-  submit(@Body() body: SubmitTransactionDto): Promise<{ hash: string }> {
-    return this.transactionsService.submit(body.xdr);
+  @ApiOperation({ summary: 'Submit a signed XDR transaction to Stellar' })
+  submit(@Body() body: SubmitTransactionDto): Promise<TransactionResult> {
+    return this.service.submit(body.xdr);
   }
 }
