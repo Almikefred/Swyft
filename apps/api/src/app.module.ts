@@ -18,7 +18,8 @@ import { WebhooksModule } from './webhooks/webhooks.module';
 import { CandlesModule } from './candles/candles.module';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { StatsModule } from './stats/stats.module';
-import { TransactionsModule } from './transactions/transactions.module';
+import { TokensModule } from './tokens/tokens.module';
+import { SearchModule } from './search/search.module';
 
 @Module({
   imports: [
@@ -38,7 +39,8 @@ import { TransactionsModule } from './transactions/transactions.module';
     WebhooksModule,
     CandlesModule,
     StatsModule,
-    TransactionsModule,
+    SearchModule,
+    TokensModule,
   ],
   controllers: [AppController],
   providers: [AppService],
