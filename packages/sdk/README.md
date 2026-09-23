@@ -113,6 +113,48 @@ without parsing messages. No secrets are included in the error payload.
 
 ---
 
+## Contract error mapping
+
+Soroban contract failures surface as raw `code` + `message` pairs. The SDK maps
+these into **typed, stable errors** so callers never have to parse contract
+strings and can branch on a documented `code`.
+
+```ts
+import { mapContractError, SwyftContractError } from '@swyft/sdk/errors';
+
+try {
+  // ...invoke a contract entrypoint...
+} catch (raw) {
+  const err = mapContractError(raw);
+  if (err instanceof SwyftContractError) {
+    // err.code is a stable SDK code; err.contractCode preserves the original
+    console.error(err.code, err.contractCode, err.correlationId);
+  }
+}
+```
+
+### Mapping rules
+
+- The original contract `code` is preserved on `err.contractCode` and the
+  original message on `err.contractMessage`.
+- A `correlationId` is attached to every mapped error for observability. It is
+  propagated from the caller when supplied, otherwise generated. No secrets are
+  included in the payload.
+- **Fail-closed:** unknown or unmapped contract codes are never swallowed and
+  never treated as success. They surface as `SWYFT_CONTRACT_UNKNOWN_ERROR`.
+
+| SDK code | Meaning |
+|---|---|
+| `SWYFT_CONTRACT_INVALID_ARGUMENT` | Contract rejected an argument |
+| `SWYFT_CONTRACT_UNAUTHORIZED` | Caller is not authorized |
+| `SWYFT_CONTRACT_INSUFFICIENT_LIQUIDITY` | Pool lacks liquidity for the operation |
+| `SWYFT_CONTRACT_SLIPPAGE_EXCEEDED` | Slippage bound was exceeded |
+| `SWYFT_CONTRACT_POOL_NOT_FOUND` | Referenced pool does not exist |
+| `SWYFT_CONTRACT_POSITION_NOT_FOUND` | Referenced position does not exist |
+| `SWYFT_CONTRACT_UNKNOWN_ERROR` | Unmapped contract code (fail-closed default) |
+
+---
+
 ## API Reference
 
 ### Swap
@@ -150,9 +192,17 @@ without parsing messages. No secrets are included in the error payload.
 | `assertNetworkPassphrase(params)` | Fail-closed passphrase guard for money-path entrypoints |
 | `NetworkPassphraseError` | Thrown when the passphrase is missing, malformed, or mismatched |
 
+### Errors
+
+| Export | Description |
+|---|---|
+| `mapContractError(raw, opts?)` | Map a raw contract/Soroban error into a typed SDK error |
+| `SwyftContractError` | Typed error carrying `code`, `contractCode`, `contractMessage`, `correlationId` |
+| `SwyftContractErrorCode` | Union of stable SDK contract error codes |
+
 ### Types
 
-`PoolState`, `PositionState`, `TickState`, `SwapQuote`, `SwapQuoteParams`, `LocalSwapQuote`, `LocalSwapQuoteParams`, `PoolStateWithTicks`, `SwapTxParams`, `SwapUnsignedTx`, `BurnTxParams`, `BurnUnsignedTx`, `CollectTxParams`, `CollectUnsignedTx`, `UnsignedTx`, `RemoveAmountsParams`, `RemoveAmountsResult`, `PoolId`, `StellarAddress`, `RawAmount`, `XdrBase64`, `NetworkPassphraseGuardParams`, `NetworkPassphraseErrorCode`.
+`PoolState`, `PositionState`, `TickState`, `SwapQuote`, `SwapQuoteParams`, `LocalSwapQuote`, `LocalSwapQuoteParams`, `PoolStateWithTicks`, `SwapTxParams`, `SwapUnsignedTx`, `BurnTxParams`, `BurnUnsignedTx`, `CollectTxParams`, `CollectUnsignedTx`, `UnsignedTx`, `RemoveAmountsParams`, `RemoveAmountsResult`, `PoolId`, `StellarAddress`, `RawAmount`, `XdrBase64`, `NetworkPassphraseGuardParams`, `NetworkPassphraseErrorCode`, `SwyftContractErrorCode`, `ContractErrorInput`, `MapContractErrorOptions`.
 
 ### Helpers
 
@@ -179,7 +229,7 @@ import { buildSwapTx } from '@swyft/sdk/swap';    // same function, narrower imp
 ```
 
 Available subpaths: `@swyft/sdk/quote`, `@swyft/sdk/liquidity`, `@swyft/sdk/queries`,
-`@swyft/sdk/swap`, `@swyft/sdk/types`, `@swyft/sdk/config`.
+`@swyft/sdk/swap`, `@swyft/sdk/types`, `@swyft/sdk/config`, `@swyft/sdk/errors`.
 
 The package sets `"sideEffects": false` and ships separate `browser` / `import`
 (ESM) / `require` (CJS) conditions per entrypoint, so browser bundlers (webpack,
