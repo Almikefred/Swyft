@@ -2,10 +2,11 @@ import { stellarConfig, STELLAR_CONFIG_KEY } from './stellar.config';
 
 /**
  * Validates that the stellarConfig factory:
- *   - returns correct values for valid env vars
+ *   - returns correct values for valid testnet env vars
  *   - applies safe testnet defaults when vars are missing
  *   - throws a descriptive error for malformed URLs
  *   - throws for invalid STELLAR_NETWORK values
+ *   - fails closed on mainnet passphrase / address drift
  */
 describe('stellarConfig', () => {
   const originalEnv = process.env;
@@ -19,16 +20,18 @@ describe('stellarConfig', () => {
   });
 
   it('returns configured values when all env vars are valid', () => {
-    process.env.STELLAR_RPC_URL = 'https://rpc.example.com';
-    process.env.HORIZON_URL = 'https://horizon.example.com';
-    process.env.STELLAR_NETWORK = 'mainnet';
+    process.env.STELLAR_RPC_URL = 'https://soroban-testnet.stellar.org';
+    process.env.HORIZON_URL = 'https://horizon-testnet.stellar.org';
+    process.env.STELLAR_NETWORK = 'testnet';
+    process.env.STELLAR_NETWORK_PASSPHRASE = 'Test SDF Network ; September 2015';
     process.env.POOL_CONTRACT_ID = 'CPOOL123';
 
     const cfg = stellarConfig();
 
-    expect(cfg.rpcUrl).toBe('https://rpc.example.com');
-    expect(cfg.horizonUrl).toBe('https://horizon.example.com');
-    expect(cfg.network).toBe('mainnet');
+    expect(cfg.rpcUrl).toBe('https://soroban-testnet.stellar.org');
+    expect(cfg.horizonUrl).toBe('https://horizon-testnet.stellar.org');
+    expect(cfg.network).toBe('testnet');
+    expect(cfg.networkPassphrase).toBe('Test SDF Network ; September 2015');
     expect(cfg.poolContractId).toBe('CPOOL123');
   });
 
@@ -36,6 +39,7 @@ describe('stellarConfig', () => {
     delete process.env.STELLAR_RPC_URL;
     delete process.env.HORIZON_URL;
     delete process.env.STELLAR_NETWORK;
+    delete process.env.STELLAR_NETWORK_PASSPHRASE;
     delete process.env.POOL_CONTRACT_ID;
 
     const cfg = stellarConfig();
@@ -43,6 +47,7 @@ describe('stellarConfig', () => {
     expect(cfg.rpcUrl).toBe('https://soroban-testnet.stellar.org');
     expect(cfg.horizonUrl).toBe('https://horizon-testnet.stellar.org');
     expect(cfg.network).toBe('testnet');
+    expect(cfg.networkPassphrase).toBe('Test SDF Network ; September 2015');
     expect(cfg.poolContractId).toBe('');
   });
 
@@ -69,6 +74,55 @@ describe('stellarConfig', () => {
 
     expect(() => stellarConfig()).toThrow(/Stellar configuration is invalid/);
     expect(() => stellarConfig()).toThrow(/STELLAR_NETWORK/);
+  });
+
+  it('fails closed when a mainnet passphrase is supplied for testnet', () => {
+    process.env.STELLAR_RPC_URL = 'https://soroban-testnet.stellar.org';
+    process.env.HORIZON_URL = 'https://horizon-testnet.stellar.org';
+    process.env.STELLAR_NETWORK = 'testnet';
+    process.env.STELLAR_NETWORK_PASSPHRASE = 'Public Global Stellar Network ; September 2015';
+
+    expect(() => stellarConfig()).toThrow(/Stellar configuration is invalid/);
+    expect(() => stellarConfig()).toThrow(/STELLAR_NETWORK_PASSPHRASE/);
+  });
+
+  it('fails closed when a testnet passphrase is supplied for mainnet', () => {
+    process.env.STELLAR_RPC_URL = 'https://soroban.stellar.org';
+    process.env.HORIZON_URL = 'https://horizon.stellar.org';
+    process.env.STELLAR_NETWORK = 'mainnet';
+    process.env.STELLAR_NETWORK_PASSPHRASE = 'Test SDF Network ; September 2015';
+
+    expect(() => stellarConfig()).toThrow(/Stellar configuration is invalid/);
+    expect(() => stellarConfig()).toThrow(/STELLAR_NETWORK_PASSPHRASE/);
+  });
+
+  it('fails closed when a testnet RPC URL is used with mainnet network', () => {
+    process.env.STELLAR_RPC_URL = 'https://soroban-testnet.stellar.org';
+    process.env.HORIZON_URL = 'https://horizon.stellar.org';
+    process.env.STELLAR_NETWORK = 'mainnet';
+
+    expect(() => stellarConfig()).toThrow(/Stellar configuration is invalid/);
+    expect(() => stellarConfig()).toThrow(/STELLAR_RPC_URL/);
+  });
+
+  it('fails closed when a mainnet Horizon URL is used with testnet network', () => {
+    process.env.STELLAR_RPC_URL = 'https://soroban-testnet.stellar.org';
+    process.env.HORIZON_URL = 'https://horizon.stellar.org';
+    process.env.STELLAR_NETWORK = 'testnet';
+
+    expect(() => stellarConfig()).toThrow(/Stellar configuration is invalid/);
+    expect(() => stellarConfig()).toThrow(/HORIZON_URL/);
+  });
+
+  it('fails closed when a required contract ID is missing on testnet', () => {
+    process.env.STELLAR_RPC_URL = 'https://soroban-testnet.stellar.org';
+    process.env.HORIZON_URL = 'https://horizon-testnet.stellar.org';
+    process.env.STELLAR_NETWORK = 'testnet';
+    process.env.POOL_CONTRACT_ID = '';
+    process.env.REQUIRE_CONTRACT_IDS = 'true';
+
+    expect(() => stellarConfig()).toThrow(/Stellar configuration is invalid/);
+    expect(() => stellarConfig()).toThrow(/POOL_CONTRACT_ID/);
   });
 
   it('accepts http:// URLs for local development', () => {
