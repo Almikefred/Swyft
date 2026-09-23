@@ -59,6 +59,60 @@ console.log(tx.xdr);
 
 ---
 
+## Network passphrase guards
+
+Every SDK entrypoint that touches liquidity, trading, or settlement paths is
+guarded by a **fail-closed network passphrase check**. Before any operation
+runs, the SDK validates the configured network passphrase against the expected
+network and rejects the call when the passphrase is missing, malformed, or does
+not match the target network (testnet vs mainnet).
+
+```ts
+import { assertNetworkPassphrase, NetworkPassphraseError } from '@swyft/sdk/config';
+
+try {
+  assertNetworkPassphrase({
+    networkPassphrase: 'Test SDF Network ; September 2015',
+    expected: 'testnet',
+  });
+} catch (err) {
+  if (err instanceof NetworkPassphraseError) {
+    // err.code is a stable, documented error code
+    console.error(err.code, err.message, err.correlationId);
+  }
+}
+```
+
+### Guarded entrypoints
+
+The guard runs automatically on the money-path entrypoints:
+
+| Entrypoint | Path |
+|---|---|
+| `buildSwapTx` | trading |
+| `buildBurnTx` | liquidity |
+| `buildCollectTx` | liquidity / settlement |
+| `getSwapQuote` | trading |
+| `getPool` / `getPosition` / `getTick` | queries |
+
+Untrusted callers cannot bypass network policy: the guard is enforced inside
+the SDK, not left to the caller, and it fails closed (deny-by-default) rather
+than falling back to a default network.
+
+### Stable error codes
+
+`NetworkPassphraseError` carries a stable `code` plus structured metadata
+(`correlationId`, `expected`, `received`) so callers and ops tooling can react
+without parsing messages. No secrets are included in the error payload.
+
+| Code | Meaning |
+|---|---|
+| `SWYFT_NETWORK_PASSPHRASE_MISSING` | No passphrase was configured |
+| `SWYFT_NETWORK_PASSPHRASE_MALFORMED` | Passphrase is not a valid string |
+| `SWYFT_NETWORK_PASSPHRASE_MISMATCH` | Passphrase does not match the expected network |
+
+---
+
 ## API Reference
 
 ### Swap
@@ -89,9 +143,16 @@ console.log(tx.xdr);
 | `getTick({ rpcUrl, poolAddress, tick })` | Fetch tick state |
 | `SwyftRpcError` | Thrown when an RPC call fails |
 
+### Network Guards
+
+| Export | Description |
+|---|---|
+| `assertNetworkPassphrase(params)` | Fail-closed passphrase guard for money-path entrypoints |
+| `NetworkPassphraseError` | Thrown when the passphrase is missing, malformed, or mismatched |
+
 ### Types
 
-`PoolState`, `PositionState`, `TickState`, `SwapQuote`, `SwapQuoteParams`, `LocalSwapQuote`, `LocalSwapQuoteParams`, `PoolStateWithTicks`, `SwapTxParams`, `SwapUnsignedTx`, `BurnTxParams`, `BurnUnsignedTx`, `CollectTxParams`, `CollectUnsignedTx`, `UnsignedTx`, `RemoveAmountsParams`, `RemoveAmountsResult`, `PoolId`, `StellarAddress`, `RawAmount`, `XdrBase64`.
+`PoolState`, `PositionState`, `TickState`, `SwapQuote`, `SwapQuoteParams`, `LocalSwapQuote`, `LocalSwapQuoteParams`, `PoolStateWithTicks`, `SwapTxParams`, `SwapUnsignedTx`, `BurnTxParams`, `BurnUnsignedTx`, `CollectTxParams`, `CollectUnsignedTx`, `UnsignedTx`, `RemoveAmountsParams`, `RemoveAmountsResult`, `PoolId`, `StellarAddress`, `RawAmount`, `XdrBase64`, `NetworkPassphraseGuardParams`, `NetworkPassphraseErrorCode`.
 
 ### Helpers
 

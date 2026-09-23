@@ -87,6 +87,16 @@ The SDK exposes high-level swap and liquidity APIs. These are **client-side help
 - **No secrets in the SDK.** The SDK never accepts, stores, or logs private keys, seed phrases, or signing material. Signing is delegated to the caller's wallet (e.g. Freighter).
 - **Deny-by-default authz.** Privileged surfaces (admin, treasury, config) are not exposed through the SDK's public entrypoints. Any privileged call requires an explicit, caller-supplied authorization context; absent or invalid context fails closed.
 
+### Network passphrase guards
+
+Every SDK entrypoint that touches liquidity, trading, or settlement paths is gated by a **network passphrase guard** that runs before any operation executes. The guard is fail-closed: if it cannot positively confirm the configured network, the operation is rejected.
+
+- **Expected network is explicit.** The SDK is constructed with an expected network (testnet or mainnet) and the corresponding Stellar network passphrase. There is no implicit default and no silent fallback.
+- **Guard runs first.** The guard validates the configured passphrase against the expected network before any quote, execute, add/remove liquidity, or settlement call proceeds. Untrusted callers cannot bypass it by supplying their own passphrase or network.
+- **Fail-closed on mismatch.** A missing, malformed, or mismatched passphrase (e.g. testnet passphrase against a mainnet expectation, or vice versa) causes the operation to be rejected with a stable, documented error code. The SDK never proceeds on an unverified network.
+- **Stable error codes.** Guard failures surface a stable, machine-readable error code plus a correlation id, consistent with the SDK's error model. Messages MUST NOT leak secrets or internal topology.
+- **No address drift.** The guard prevents testnet vs mainnet address drift: the SDK never silently falls back to a different network's addresses or passphrase.
+
 ### Swap & liquidity entrypoints
 
 - **Quote** (`quote`) is read-only and side-effect free. It MUST NOT mutate state or trigger writes.
