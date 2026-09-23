@@ -77,6 +77,37 @@ Soroban contracts present unique risks. When reporting contract vulnerabilities,
 
 ---
 
+## SDK Security Model (`@swyft/sdk`)
+
+The SDK exposes high-level swap and liquidity APIs. These are **client-side helpers only** — they never hold keys, sign transactions, or act as a source of truth.
+
+### Trust boundaries
+
+- **Server/contract is the source of truth** for balances, swap execution, pool state, and admin actions. SDK results (quotes, pool queries) are advisory and MUST be re-validated on-chain.
+- **No secrets in the SDK.** The SDK never accepts, stores, or logs private keys, seed phrases, or signing material. Signing is delegated to the caller's wallet (e.g. Freighter).
+- **Deny-by-default authz.** Privileged surfaces (admin, treasury, config) are not exposed through the SDK's public entrypoints. Any privileged call requires an explicit, caller-supplied authorization context; absent or invalid context fails closed.
+
+### Swap & liquidity entrypoints
+
+- **Quote** (`quote`) is read-only and side-effect free. It MUST NOT mutate state or trigger writes.
+- **Execute** (`execute`) and liquidity mutations (`addLiquidity` / `removeLiquidity`) are money-path operations. They:
+  - require an explicit authorization context and fail closed when it is missing, expired, or has the wrong role;
+  - carry a caller-supplied **idempotency key** so concurrent or replayed requests cannot double-execute;
+  - fail closed on dependency outages (RPC/DB/Redis) — no partial writes, no silent retries that could duplicate a swap.
+- **Stable error codes.** All SDK errors surface a stable, machine-readable code plus a correlation id for support and audit trails. Error messages MUST NOT leak secrets or internal topology.
+
+### Observability
+
+- Metrics and logs on money paths (quote, execute, add/remove liquidity) are ops-safe: they record counts, latency, and stable error codes — never keys, signatures, or raw payloads containing secrets.
+- Correlation ids are propagated end-to-end so a client request can be traced without exposing sensitive data.
+
+### Mainnet safety
+
+- Money-path and mainnet-affecting SDK behavior is gated behind a feature flag / kill-switch. Rollback is documented in the PR that introduces the change.
+- Testnet vs mainnet address drift is handled explicitly; the SDK never silently falls back to a different network's addresses.
+
+---
+
 ## Disclosure Policy
 
 Swyft follows **coordinated disclosure**:

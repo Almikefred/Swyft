@@ -142,6 +142,71 @@ The NestJS backend indexes Soroban events from Stellar Horizon, caches pool stat
 
 ---
 
+## SDK (`@swyft/sdk`)
+
+The SDK exposes typed high-level entrypoints for swaps and liquidity. All money-path calls are fail-closed: the server/contract remains the source of truth for balances, swaps, and admin, and untrusted clients cannot bypass policy.
+
+### Swaps
+
+```ts
+import { SwyftClient } from '@swyft/sdk';
+
+const client = new SwyftClient({ network: 'testnet', rpcUrl: process.env.STELLAR_RPC_URL! });
+
+// Quote (read-only, no auth required)
+const quote = await client.swap.quote({
+  poolId: 'C...',
+  tokenIn: 'native',
+  tokenOut: 'USDC:GA...',
+  amountIn: '10000000',
+  slippageBps: 50,
+});
+
+// Execute (privileged — requires a signed auth context)
+const result = await client.swap.execute({
+  quoteId: quote.quoteId,
+  idempotencyKey: crypto.randomUUID(),
+  auth: signedAuthContext,
+});
+```
+
+### Liquidity
+
+```ts
+// Add liquidity to a concentrated range
+await client.liquidity.add({
+  poolId: 'C...',
+  tickLower: -887220,
+  tickUpper: 887220,
+  amount0Desired: '1000000',
+  amount1Desired: '1000000',
+  idempotencyKey: crypto.randomUUID(),
+  auth: signedAuthContext,
+});
+
+// Remove liquidity
+await client.liquidity.remove({ positionId: '...', liquidity: '500000', idempotencyKey: crypto.randomUUID(), auth: signedAuthContext });
+
+// Pool queries (read-only)
+const pool = await client.liquidity.getPool({ poolId: 'C...' });
+```
+
+### Error codes & correlation ids
+
+Every SDK error carries a stable `code` and a `correlationId` for support/observability. Privileged entrypoints (`swap.execute`, `liquidity.add`, `liquidity.remove`) are deny-by-default: they require a valid auth context and an `idempotencyKey`, and fail closed if the RPC/DB/Redis dependency is unavailable. Replayed or concurrent requests with the same `idempotencyKey` return the original result rather than re-executing.
+
+| Code | Meaning |
+|---|---|
+| `SWYFT_UNAUTHORIZED` | Missing/invalid auth context on a privileged call |
+| `SWYFT_FORBIDDEN` | Auth present but role/policy denies the action |
+| `SWYFT_IDEMPOTENCY_CONFLICT` | Same `idempotencyKey` reused with a different payload |
+| `SWYFT_DEPENDENCY_UNAVAILABLE` | RPC/DB/Redis outage — write rejected (fail-closed) |
+| `SWYFT_QUOTE_EXPIRED` | Quote is stale; re-quote before executing |
+| `SWYFT_SLIPPAGE_EXCEEDED` | Execution would exceed the quoted slippage bound |
+| `SWYFT_INVALID_INPUT` | Malformed or adversarial input rejected |
+
+---
+
 ## Roadmap
 
 | Phase                    | Timeline | Focus                                      | Status         |
