@@ -104,6 +104,11 @@ impl FeeCollector {
     }
 
     /// Admin withdraws accumulated protocol fees to `to`.
+    ///
+    /// Requires the contract's real token balance to cover the recorded
+    /// `Fees(token)` amount; if the recorded balance exceeds the actual token
+    /// balance (e.g. an out-of-band transfer drained the contract), the
+    /// underlying `transfer` traps and the whole call reverts.
     pub fn collect_protocol_fees(env: Env, token: Address, to: Address) -> i128 {
         let admin = read_admin(&env);
         admin.require_auth();
@@ -113,12 +118,15 @@ impl FeeCollector {
             panic!("no protocol fees to collect");
         }
 
+        let token_client = token::Client::new(&env, &token);
+        token_client.transfer(&env.current_contract_address(), &to, &amount);
+
+        // The balance write is intentionally last: if the transfer above traps,
+        // the recorded `Fees(token)` value must remain intact so a failed
+        // collect cannot clear the ledger.
         env.storage()
             .instance()
             .set(&DataKey::Fees(token.clone()), &0i128);
-
-        let token_client = token::Client::new(&env, &token);
-        token_client.transfer(&env.current_contract_address(), &to, &amount);
 
         env.events()
             .publish((Symbol::new(&env, "FeeCollected"), token, to), amount);
