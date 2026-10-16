@@ -96,4 +96,56 @@ describe('calculatePoolTvl', () => {
       }),
     ).toThrow('Indexed position liquidity is invalid');
   });
+
+  it('does not silently round reserves that exceed Number.MAX_SAFE_INTEGER', () => {
+    // A liquidity value near the Q64.96 range pushes the derived reserves well
+    // past Number.MAX_SAFE_INTEGER, where a raw `Number(reserve)` conversion
+    // would silently lose precision. The function must either compute the TVL
+    // exactly within a documented tolerance or reject the input outright.
+    const hugeLiquidity = (1n << 96n).toString();
+    const hugePosition = {
+      lowerTick: -200,
+      upperTick: 200,
+      liquidity: hugeLiquidity,
+    };
+    const { amount0, amount1 } = getAmountsForLiquidity({
+      sqrtPriceX96: BigInt(currentSqrtPrice),
+      sqrtPriceLowerX96: tickToSqrtPriceX96(hugePosition.lowerTick),
+      sqrtPriceUpperX96: tickToSqrtPriceX96(hugePosition.upperTick),
+      liquidity: BigInt(hugeLiquidity),
+    });
+    expect(amount0 > BigInt(Number.MAX_SAFE_INTEGER)).toBe(true);
+    expect(amount1 > BigInt(Number.MAX_SAFE_INTEGER)).toBe(true);
+
+    const price0 = 2;
+    const price1 = 3;
+    const decimals0 = 6;
+    const decimals1 = 7;
+
+    let result: number | undefined;
+    try {
+      result = calculatePoolTvl({
+        currentSqrtPrice,
+        positions: [hugePosition],
+        price0,
+        price1,
+        decimals0,
+        decimals1,
+      });
+    } catch (error) {
+      expect((error as Error).message).toBe('Computed pool TVL is invalid');
+      return;
+    }
+
+    // If the function chooses to compute rather than reject, the result must
+    // match the exact bigint-scaled value within a documented tolerance.
+    const scale0 = 10n ** BigInt(decimals0);
+    const scale1 = 10n ** BigInt(decimals1);
+    const exact =
+      (Number(amount0 / scale0) + Number(amount0 % scale0) / Number(scale0)) *
+        price0 +
+      (Number(amount1 / scale1) + Number(amount1 % scale1) / Number(scale1)) *
+        price1;
+    expect(result).toBeCloseTo(exact, 6);
+  });
 });
